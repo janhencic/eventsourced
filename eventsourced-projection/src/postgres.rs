@@ -1,3 +1,4 @@
+use async_nats::Client;
 use error_ext::StdErrorExt;
 use eventsourced::{binarize, event_log::EventLog};
 use futures::StreamExt;
@@ -34,6 +35,7 @@ impl Projection {
         event_handler: H,
         error_strategy: ErrorStrategy,
         pool: Pool<Postgres>,
+        nats_client: Client,
     ) -> Result<Self, Error>
     where
         E: for<'de> Deserialize<'de> + Send + 'static,
@@ -84,6 +86,7 @@ impl Projection {
                                     event_log.clone(),
                                     event_handler.clone(),
                                     pool.clone(),
+                                    nats_client.clone(),
                                     error_strategy,
                                 )
                                 .await;
@@ -156,6 +159,7 @@ pub trait EventHandler<E> {
         &self,
         event: E,
         tx: &mut Transaction<'static, Postgres>,
+        nats_client: &Client,
     ) -> Result<(), Self::Error>;
 }
 
@@ -233,6 +237,7 @@ async fn run_projection_loop<E, L, H>(
     event_log: L,
     event_handler: H,
     pool: Pool<Postgres>,
+    nats_client: Client,
     error_strategy: ErrorStrategy,
 ) where
     E: for<'de> Deserialize<'de> + Send + 'static,
@@ -243,7 +248,7 @@ async fn run_projection_loop<E, L, H>(
         async move {
             loop {
                 let result =
-                    run_projection(type_name, &name, &event_log, &event_handler, &pool, &state)
+                    run_projection(type_name, &name, &event_log, &event_handler, &pool, &nats_client, &state)
                         .await;
                 match result {
                     Ok(_) => {
@@ -294,6 +299,7 @@ async fn run_projection<E, L, H>(
     event_log: &L,
     handler: &H,
     pool: &Pool<Postgres>,
+    nats_client: &Client,
     state: &Arc<RwLock<State>>,
 ) -> Result<(), IntenalRunError<L::Error, H::Error>>
 where
@@ -320,7 +326,7 @@ where
 
         let mut tx = pool.begin().await?;
         handler
-            .handle_event(event, &mut tx)
+            .handle_event(event, &mut tx, &nats_client)
             .await
             .map_err(IntenalRunError::Handler)?;
         debug!(type_name, name, seq_no, "projection handled event");
@@ -352,6 +358,7 @@ async fn save_seq_no(
 #[cfg(test)]
 mod tests {
     use crate::postgres::{ErrorStrategy, EventHandler, Projection};
+    use async_nats::Client;
     use error_ext::BoxError;
     use eventsourced::{
         binarize::serde_json::to_bytes,
@@ -376,6 +383,7 @@ mod tests {
             &self,
             event: i32,
             tx: &mut Transaction<'static, Postgres>,
+            nats_client: &Client,
         ) -> Result<(), Self::Error> {
             QueryBuilder::new("INSERT INTO test (n) ")
                 .push_values(once(event), |mut q, event| {
