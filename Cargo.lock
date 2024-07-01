@@ -739,6 +739,7 @@ dependencies = [
 name = "eventsourced-projection"
 version = "0.6.1"
 dependencies = [
+ "async-nats",
  "bytes",
  "error-ext",
  "eventsourced",

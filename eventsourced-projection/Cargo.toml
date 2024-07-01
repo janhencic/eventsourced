@@ -13,6 +13,7 @@ documentation = "https://docs.rs/eventsourced-nats/latest/eventsourced-projectio
 [dependencies]
 eventsourced  = { path = "../eventsourced", version = "0.27.0", features = [ "serde_json" ] }
 bytes         = { workspace = true }
+async-nats    = { workspace = true }
 error-ext     = { workspace = true }
 futures       = { workspace = true }
 serde         = { workspace = true }
